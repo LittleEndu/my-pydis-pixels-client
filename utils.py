@@ -43,22 +43,32 @@ class Pixel:
 
 class RequestsManager:
     def __init__(self):
-        self.get_pixels_time = 0
-        self.set_pixel_time = time.time() + 60
+        self.get_pixels_time = time.time() + 3
+        self.set_pixel_time = time.time() + 120
         self.canvas: Image = None
         self.logger = get_a_logger('RequestsManager')
 
+    def wait_for_get_pixels(self):
+        t = sleep_until(self.get_pixels_time, True)
+        if t:
+            self.logger.info(f"get_pixels is sleeping for {t}")
+            sleep_until(self.get_pixels_time)
+
     def get_pixels(self):
-        sleep_until(self.get_pixels_time)
+        if sleep_until(self.get_pixels_time, True) > 0:
+            return self.canvas.copy()
+
         size_r = requests.get("https://pixels.pythondiscord.com/get_size", headers=config.headers)
         size_json = size_r.json()
         ww, hh = size_json["width"], size_json["height"]
         pixels_r = requests.get("https://pixels.pythondiscord.com/get_pixels", headers=config.headers)
         self.logger.debug(pixels_r.headers)
         try:
-            reset = int(pixels_r.headers['Requests-Reset'])
+            remaining = int(pixels_r.headers['Requests-Remaining'])
             limit = int(pixels_r.headers['Requests-Limit'])
-            self.get_pixels_time = time.time() + (reset / limit) + config.LENIENCY
+            if remaining == 0:
+                reset = int(pixels_r.headers['Requests-Reset'])
+                self.get_pixels_time = time.time() + reset + config.SLEEP_LENIENCY
             if pixels_r.status_code == 200:
                 self.logger.info("Got pixels. Saving 'current_canvas.png'")
                 image_data = []
@@ -69,6 +79,7 @@ class RequestsManager:
                 img = Image.new('RGBA', (ww, hh))
                 img.putdata(image_data)
                 img.save('current_canvas.png')
+                self.canvas = img
                 return img.copy()
             else:
                 self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
@@ -78,11 +89,13 @@ class RequestsManager:
             raise
 
     def wait_for_set_pixel(self):
-        self.logger.info(f"set_pixel is sleeping for {sleep_until(self.set_pixel_time, True)}")
-        sleep_until(self.set_pixel_time)
+        t = sleep_until(self.set_pixel_time, True)
+        if t:
+            self.logger.info(f"set_pixel is sleeping for {t}")
+            sleep_until(self.set_pixel_time)
 
     def set_pixel(self, x: int, y: int, rgb: str):
-        sleep_until(self.set_pixel_time)
+        self.wait_for_set_pixel()
         set_r = requests.post("https://pixels.pythondiscord.com/set_pixel",
                               json={'x': x, 'y': y, 'rgb': rgb},
                               headers=config.headers)
@@ -90,11 +103,14 @@ class RequestsManager:
         try:
             try:
                 reset = int(set_r.headers['Requests-Reset'])
+                remaining = int(set_r.headers['Requests-Remaining'])
                 limit = int(set_r.headers['Requests-Limit'])
             except KeyError:
-                self.set_pixel_time = time.time() + int(set_r.headers['Cooldown-Reset']) + config.LENIENCY
+                self.logger.error("set_pixel is under cooldown!!!")
+                self.set_pixel_time = time.time() + int(set_r.headers['Cooldown-Reset']) + config.SLEEP_LENIENCY
             else:
-                self.set_pixel_time = time.time() + (reset / limit) + config.LENIENCY
+                if remaining == 0:
+                    self.set_pixel_time = time.time() + reset + config.SLEEP_LENIENCY
                 if set_r.status_code == 200:
                     self.logger.info(f"Successfully set {x}, {y} to #{rgb.upper()}")
                 else:

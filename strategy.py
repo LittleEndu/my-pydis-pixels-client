@@ -4,16 +4,23 @@ import time
 
 from PIL import Image
 
+import config
 import utils
 
 api = utils.RequestsManager()
-on_exception_time = time.time() + 120
 logger = utils.get_a_logger('strat')
+current_pixel_leniency = config.IMAGE_MAX_LENIENCY
 
 
-def get_target_pixels(target_img: Image, x_step=1, y_step=1):
+def get_pixel_diff(first_pixel, second_pixel):
+    return sum(abs(first_pixel[i] - second_pixel[i]) for i in range(3))
+
+
+def get_target_pixels(target_filename, x_step=1, y_step=1):
     rv = []
+    total = 1
     current_canvas_img = api.get_pixels()
+    target_img = Image.open(target_filename)
     ww, hh = current_canvas_img.size
     for xx in range(ww)[::x_step]:
         for yy in range(hh)[::y_step]:
@@ -22,24 +29,42 @@ def get_target_pixels(target_img: Image, x_step=1, y_step=1):
                 target_pixel = target_img.getpixel((xx, yy))
             except IndexError:
                 break
-            if canvas_pixel[:3] != target_pixel[:3] and target_pixel[3] > 10:
-                rv.append((xx, yy, '%02x%02x%02x' % target_pixel[:3]))
-    return rv
+            if target_pixel[3] > 10:
+                total += 1
+                if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
+                    rv.append((xx, yy, '%02x%02x%02x' % target_pixel[:3]))
+    target_img.close()
+    return rv, 1 - len(rv) / total
 
 
 def main_loop():
-    global on_exception_time
+    global current_pixel_leniency
+    on_exception_time = time.time() + 120
+    is_100 = True
+    print_100 = False
     while True:
         try:
-            for file_name in os.listdir('maintain'):
-                img = Image.open(f'maintain/{file_name}')
-                api.wait_for_set_pixel()
-                target_pixels = get_target_pixels(img)
-                if target_pixels:
-                    logger.info(f"Working on {file_name}")
-                    candidate = target_pixels[int(1 - random.random() ** 0.1 * len(target_pixels))]
-                    api.set_pixel(*candidate)
-                    break
+            for x_step in (-1, 1):
+                for y_step in (-1, 1):
+                    api.wait_for_set_pixel()
+                    for file_name in os.listdir('maintain'):
+                        target_pixels, percent = get_target_pixels(f'maintain/{file_name}', x_step, y_step)
+                        if target_pixels:
+                            is_100 = False
+                            print_100 = False
+                            logger.info(f"Working on {file_name} {int(percent * 100)}% d~{current_pixel_leniency}")
+                            for _ in range(2):
+                                candidate = target_pixels[int((1 - random.random() ** 0.1) * len(target_pixels))]
+                                api.set_pixel(*candidate)
+                                target_pixels.remove(candidate)
+                            break
+                    if is_100:
+                        current_pixel_leniency = max(0, current_pixel_leniency - 1)
+                        if not print_100:
+                            logger.info("All images 100% done")
+                            print_100 = True
+                    else:
+                        current_pixel_leniency = min(config.IMAGE_MAX_LENIENCY, current_pixel_leniency + 1)
         except Exception:
             logger.exception('Exception in main loop')
             logger.info(f"Main loop is sleeping for {utils.sleep_until(on_exception_time, True)}")
