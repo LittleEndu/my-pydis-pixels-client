@@ -55,31 +55,30 @@ def main_loop():
     print_100 = False
     while True:
         try:
-            for rev in (-1, 1):
-                for td in (True, False):
-                    api.wait_for_set_pixel()
-                    for file_name in os.listdir('maintain'):
-                        target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
-                        left = len(target_pixels)
-                        done = total - left
-                        percent = done / total
-                        if target_pixels:
-                            is_100 = False
-                            print_100 = False
-                            logger.info(f"Working on {file_name} {int(percent * 100)}% "
-                                        f"{done}/{left}/{total} d~{current_pixel_leniency}")
-                            for _ in range(2):
-                                candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
-                                api.set_pixel(*candidate)
-                                target_pixels.remove(candidate)
-                            break
-                    if is_100:
-                        current_pixel_leniency = max(0, current_pixel_leniency - 1)
-                        if not print_100:
-                            logger.info("All images 100% done")
-                            print_100 = True
-                    else:
-                        current_pixel_leniency = min(config.IMAGE_MAX_LENIENCY, current_pixel_leniency + 1)
+            for td in (True, False):
+                api.wait_for_set_pixel()
+                for file_name in os.listdir('maintain'):
+                    target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
+                    left = len(target_pixels)
+                    done = total - left
+                    percent = done / total
+                    if target_pixels:
+                        is_100 = False
+                        print_100 = False
+                        logger.info(f"Working on {file_name} {int(percent * 100)}% "
+                                    f"{done}/{left}/{total} d~{current_pixel_leniency}")
+                        for rev in (-1, 1):
+                            candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
+                            api.set_pixel(*candidate)
+                            target_pixels.remove(candidate)
+                        break
+                if is_100:
+                    current_pixel_leniency = max(0, current_pixel_leniency - 1)
+                    if not print_100:
+                        logger.info("All images 100% done")
+                        print_100 = True
+                else:
+                    current_pixel_leniency = min(config.IMAGE_MAX_LENIENCY, current_pixel_leniency + 1)
         except Exception:
             logger.exception('Exception in main loop')
             logger.info(f"Main loop is sleeping for {utils.sleep_until(on_exception_time, True)}")
