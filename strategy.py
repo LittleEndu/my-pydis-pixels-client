@@ -8,7 +8,7 @@ import config
 import utils
 
 api = utils.RequestsManager()
-logger = utils.get_a_logger('strat')
+logger = utils.get_a_logger('strategy')
 current_pixel_leniency = config.IMAGE_MAX_LENIENCY
 
 
@@ -53,21 +53,29 @@ def main_loop():
     on_exception_time = time.time() + 120
     is_100 = True
     print_100 = False
+
     while True:
         try:
             for td in (True, False):
                 api.wait_for_set_pixel()
+                extra_target = None
                 for file_name in os.listdir('maintain'):
                     target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
                     left = len(target_pixels)
                     done = total - left
                     percent = done / total
-                    if target_pixels:
+                    if len(target_pixels) == 1:
+                        extra_target = target_pixels[0]
+                        continue
+                    if len(target_pixels) > 1:
                         is_100 = False
                         print_100 = False
                         logger.info(f"Working on {file_name} {int(percent * 100)}% "
                                     f"{done}/{left}/{total} d~{current_pixel_leniency}")
                         for rev in (-1, 1):
+                            if extra_target:
+                                api.set_pixel(*extra_target)
+                                continue
                             candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
                             api.set_pixel(*candidate)
                             target_pixels.remove(candidate)

@@ -8,14 +8,16 @@ from PIL import Image
 import config
 
 
-def get_a_logger(logger_name):
+def get_a_logger(logger_name, level=1, allowed_handlers=0):
     logger = logging.getLogger(logger_name)
-    if len(logger.handlers) == 0:
+    if level != 1:
+        logger_name = (logger_name or 'root') + logging.getLevelName(level).replace('Level ', '.')
+    if len(logger.handlers) <= allowed_handlers:
         handler = RotatingFileHandler(
             f"logs/{logger_name or 'root'}.log", maxBytes=5000000, backupCount=1, encoding='UTF-8'
         )
         handler.setFormatter(config.FORMATTER)
-        handler.setLevel(1)
+        handler.setLevel(level)
         logger.addHandler(handler)
     return logger
 

@@ -12,6 +12,7 @@ if __name__ == '__main__':
             os.makedirs(path)
 
     root_logger = utils.get_a_logger(None)
+    info_logger = utils.get_a_logger(None, logging.INFO, 1)
 
     sh = logging.StreamHandler(sys.stdout)
     sh.setLevel(logging.INFO)
