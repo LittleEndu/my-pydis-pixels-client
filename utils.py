@@ -112,7 +112,7 @@ class RequestsManager:
                 if remaining == 0:
                     self.set_pixel_time = time.time() + reset + config.SLEEP_LENIENCY
                 if set_r.status_code == 200:
-                    self.logger.info(f"Successfully set {x}, {y} to #{rgb.upper()}")
+                    self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()}")
                 else:
                     self.logger.error(f"set_pixel responded with {set_r.status_code}")
                     self.logger.debug(set_r.json())

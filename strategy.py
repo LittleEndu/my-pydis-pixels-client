@@ -16,25 +16,36 @@ def get_pixel_diff(first_pixel, second_pixel):
     return sum(abs(first_pixel[i] - second_pixel[i]) for i in range(3))
 
 
-def get_target_pixels(target_filename, x_step=1, y_step=1):
+def get_target_pixels(target_filename, td=True):
     rv = []
     total = 1
     current_canvas_img = api.get_pixels()
     target_img = Image.open(target_filename)
     ww, hh = current_canvas_img.size
-    for xx in range(ww)[::x_step]:
-        for yy in range(hh)[::y_step]:
-            canvas_pixel = current_canvas_img.getpixel((xx, yy))
-            try:
-                target_pixel = target_img.getpixel((xx, yy))
-            except IndexError:
-                break
-            if target_pixel[3] > 10:
-                total += 1
-                if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
-                    rv.append((xx, yy, '%02x%02x%02x' % target_pixel[:3]))
+
+    def compare_pixel(xx, yy):
+        nonlocal total
+        canvas_pixel = current_canvas_img.getpixel((xx, yy))
+        try:
+            target_pixel = target_img.getpixel((xx, yy))
+        except IndexError:
+            return
+        if target_pixel[3] > 10:
+            total += 1
+            if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
+                rv.append((xx, yy, '%02x%02x%02x' % target_pixel[:3]))
+
+    if td:
+        for xx in range(ww):
+            for yy in range(hh):
+                compare_pixel(xx, yy)
+    else:
+        for yy in range(hh):
+            for xx in range(ww):
+                compare_pixel(xx, yy)
+
     target_img.close()
-    return rv, 1 - len(rv) / total
+    return rv, total
 
 
 def main_loop():
@@ -44,17 +55,21 @@ def main_loop():
     print_100 = False
     while True:
         try:
-            for x_step in (-1, 1):
-                for y_step in (-1, 1):
+            for rev in (-1, 1):
+                for td in (True, False):
                     api.wait_for_set_pixel()
                     for file_name in os.listdir('maintain'):
-                        target_pixels, percent = get_target_pixels(f'maintain/{file_name}', x_step, y_step)
+                        target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
+                        left = len(target_pixels)
+                        done = total - left
+                        percent = done / total
                         if target_pixels:
                             is_100 = False
                             print_100 = False
-                            logger.info(f"Working on {file_name} {int(percent * 100)}% d~{current_pixel_leniency}")
+                            logger.info(f"Working on {file_name} {int(percent * 100)}% "
+                                        f"{done}/{left}/{total} d~{current_pixel_leniency}")
                             for _ in range(2):
-                                candidate = target_pixels[int((1 - random.random() ** 0.1) * len(target_pixels))]
+                                candidate = target_pixels[int((1 - random.random() ** 0.1) * len(target_pixels) * rev)]
                                 api.set_pixel(*candidate)
                                 target_pixels.remove(candidate)
                             break
