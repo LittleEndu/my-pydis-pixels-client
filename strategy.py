@@ -69,7 +69,7 @@ def main_loop():
                             logger.info(f"Working on {file_name} {int(percent * 100)}% "
                                         f"{done}/{left}/{total} d~{current_pixel_leniency}")
                             for _ in range(2):
-                                candidate = target_pixels[int((1 - random.random() ** 0.1) * len(target_pixels) * rev)]
+                                candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
                                 api.set_pixel(*candidate)
                                 target_pixels.remove(candidate)
                             break
