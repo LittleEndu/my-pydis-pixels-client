@@ -38,14 +38,6 @@ def sleep_until(t, dry=False):
     return rv
 
 
-class Pixel:
-    def __init__(self, data):
-        self.data = data
-
-    def to_rgb(self):
-        return tuple(map(int, self.data))
-
-
 class RequestsManager:
     def __init__(self):
         if os.path.exists('diskcache'):
@@ -113,11 +105,8 @@ class RequestsManager:
 
         if pixels_r.status_code == 200:
             self.logger.debug("Got pixels. Saving 'current_canvas.png'")
-            image_data = []
             raw = pixels_r.content
-            for r in chunks(raw, 3):
-                pixel = Pixel(r)
-                image_data.append(pixel.to_rgb())
+            image_data = [tuple(map(int, r)) for r in chunks(raw, 3)]
             img = Image.new('RGBA', (ww, hh))
             img.putdata(image_data)
             img.save('current_canvas.png')
