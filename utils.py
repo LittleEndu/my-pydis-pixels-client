@@ -53,7 +53,7 @@ class RequestsManager:
     def wait_for_get_pixels(self):
         t = sleep_until(self.get_pixels_time, True)
         if t:
-            self.logger.info(f"get_pixels is sleeping for {t}")
+            self.logger.debug(f"get_pixels is sleeping for {t}")
             sleep_until(self.get_pixels_time)
 
     def get_pixels(self):
@@ -72,7 +72,7 @@ class RequestsManager:
                 reset = int(pixels_r.headers['Requests-Reset'])
                 self.get_pixels_time = time.time() + reset + config.SLEEP_LENIENCY
             if pixels_r.status_code == 200:
-                self.logger.info("Got pixels. Saving 'current_canvas.png'")
+                self.logger.debug("Got pixels. Saving 'current_canvas.png'")
                 image_data = []
                 raw = pixels_r.content
                 for r in chunks(raw, 3):
