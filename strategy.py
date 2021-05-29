@@ -64,14 +64,14 @@ def main_loop():
                     left = len(target_pixels)
                     done = total - left
                     percent = done / total
-                    if len(target_pixels) == 1:
-                        extra_target = target_pixels[0]
-                        continue
-                    if len(target_pixels) > 1:
+                    if target_pixels:
                         is_100 = False
                         print_100 = False
                         logger.info(f"Working on {file_name} {int(percent * 100)}% "
                                     f"{done}/{left}/{total} d~{current_pixel_leniency}")
+                        if len(target_pixels) == 1:
+                            extra_target = target_pixels[0]
+                            continue
                         for rev in (-1, 1):
                             if extra_target:
                                 api.set_pixel(*extra_target)
@@ -85,6 +85,8 @@ def main_loop():
                     if not print_100:
                         logger.info("All images 100% done")
                         print_100 = True
+                    time.sleep(5)
+                    api.wait_for_get_pixels()
                 else:
                     current_pixel_leniency = min(config.IMAGE_MAX_LENIENCY, current_pixel_leniency + 1)
         except Exception:

@@ -82,6 +82,8 @@ class RequestsManager:
                 img.putdata(image_data)
                 img.save('current_canvas.png')
                 self.canvas = img
+                if self.get_pixels_time < time.time():
+                    self.get_pixels_time = time.time() + 2
                 return img.copy()
             else:
                 self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
