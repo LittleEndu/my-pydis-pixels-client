@@ -47,9 +47,19 @@ class RequestsManager:
         self.canvas = None
         self.logger = get_a_logger('RequestsManager')
         self.last_get_pixels = 0
+        self.logger.debug(f"Initialized new {self.__class__.__name__}\n\n")
 
     def wait_for_ratelimit(self, endpoint, headers, next_one: list):
         self.logger.debug(f"WAIT FOR {endpoint}: {next_one}")
+
+        try:
+            if len(next_one) + int(headers['Requests-Remaining']) > int(headers['Requests-Limit']):
+                self.logger.debug("fixing error in next_one")
+                next_one.sort()
+                next_one.pop(0)
+        except KeyError:
+            pass
+
         if headers.get('Cooldown-Reset', None):
             self.logger.info(f"{endpoint} is on cooldown!!!")
             t = int(headers['Cooldown-Reset'])
