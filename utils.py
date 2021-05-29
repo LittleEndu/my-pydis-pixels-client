@@ -3,10 +3,9 @@ import logging
 import os
 import time
 from logging.handlers import RotatingFileHandler
-from typing import Dict
 
 import requests
-from PIL import Image, ImageColor, ImageDraw
+from PIL import Image, ImageColor
 from requests.structures import CaseInsensitiveDict
 
 import config
@@ -93,7 +92,7 @@ class RequestsManager:
             t = int(self.get_headers['Requests-Reset']) / int(self.get_headers['Requests-Limit'])
         if t:
             self.logger.debug(f"get_pixels is sleeping for {t}")
-            time.sleep(t)
+            time.sleep(t + config.SLEEP_LENIENCY)
 
     def get_pixels(self):
         if self.last_get_pixels < time.time() - 2:
@@ -138,7 +137,7 @@ class RequestsManager:
             t = int(self.set_headers['Requests-Reset']) / int(self.set_headers['Requests-Limit'])
         if t:
             self.logger.debug(f"set_pixel is sleeping for {t}")
-            time.sleep(t)
+            time.sleep(t + config.SLEEP_LENIENCY)
 
     def can_set_pixel(self):
         return int(self.set_headers['Requests-Remaining']) > 0
@@ -150,16 +149,12 @@ class RequestsManager:
                               json={'x': x, 'y': y, 'rgb': rgb},
                               headers=config.headers)
 
-        try:
-            self.logger.debug(set_r.headers)
-            self.set_headers = set_r.headers
-            if set_r.status_code == 200:
-                self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()}")
-                self.canvas.putpixel((x, y), ImageColor.getcolor(f"#{rgb}", "RGB"))
-                self.canvas.save('current_canvas.png')
-            else:
-                self.logger.error(f"set_pixel responded with {set_r.status_code}")
-                self.logger.debug(set_r.json())
-        except:
-            self.logger.debug(set_r.json())
-            raise
+        self.logger.debug(set_r.json())
+        self.logger.debug(set_r.headers)
+        self.set_headers = set_r.headers
+        if set_r.status_code == 200:
+            self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()}")
+            self.canvas.putpixel((x, y), ImageColor.getcolor(f"#{rgb}", "RGB"))
+            self.canvas.save('current_canvas.png')
+        else:
+            self.logger.error(f"set_pixel responded with {set_r.status_code}")
