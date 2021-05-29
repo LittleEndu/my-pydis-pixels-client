@@ -20,4 +20,6 @@ if __name__ == '__main__':
 
     root_logger.addHandler(sh)
     root_logger.setLevel(1)
+    logging.info('\n\n\n')
+    logging.info("Starting pydis-pixels canvas drawing")
     strategy.main_loop()

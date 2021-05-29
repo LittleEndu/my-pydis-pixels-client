@@ -55,7 +55,7 @@ def main_loop():
         try:
             is_100 = True
             for rev, td in [(-1, True), (-1, False), (1, True), (1, False)]:
-                api.wait_for_set_pixel()
+                api.request_set_pixel_sleep()
                 for file_name in os.listdir('maintain'):
                     target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
                     left = len(target_pixels)
@@ -81,6 +81,7 @@ def main_loop():
                 current_pixel_leniency = min(config.IMAGE_MAX_LENIENCY, current_pixel_leniency + 1)
         except Exception:
             logger.exception('Exception in main loop')
-            logger.info(f"Main loop is sleeping for {utils.sleep_until(on_exception_time, True)}")
-            utils.sleep_until(on_exception_time)
+            t = utils.sleep_until(on_exception_time)
+            logger.info(f"Main loop is sleeping for {t}")
+            time.sleep(t)
             on_exception_time = time.time() + 60
