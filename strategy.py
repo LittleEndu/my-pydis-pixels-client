@@ -23,17 +23,17 @@ def get_target_pixels(target_filename, td=True):
     target_img = Image.open(target_filename)
     ww, hh = current_canvas_img.size
 
-    def compare_pixel(xx, yy):
+    def compare_pixel(x, y):
         nonlocal total
-        canvas_pixel = current_canvas_img.getpixel((xx, yy))
+        canvas_pixel = current_canvas_img.getpixel((x, y))
         try:
-            target_pixel = target_img.getpixel((xx, yy))
+            target_pixel = target_img.getpixel((x, y))
         except IndexError:
             return
         if target_pixel[3] > 10:
             total += 1
             if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
-                rv.append((xx, yy, '%02x%02x%02x' % target_pixel[:3]))
+                rv.append((x, y, '%02x%02x%02x' % target_pixel[:3]))
 
     if td:
         for xx in range(ww):
@@ -55,6 +55,7 @@ def main_loop():
     print_100 = False
 
     while True:
+        # noinspection PyBroadException
         try:
             for td in (True, False):
                 api.wait_for_set_pixel()
@@ -70,8 +71,13 @@ def main_loop():
                         logger.info(f"Working on {file_name} {int(percent * 100)}% "
                                     f"{done}/{left}/{total} d~{current_pixel_leniency}")
                         if len(target_pixels) == 1:
-                            extra_target = target_pixels[0]
-                            continue
+                            if extra_target and extra_target != target_pixels[0]:
+                                api.set_pixel(*extra_target)
+                                api.set_pixel(*target_pixels[0])
+                                break
+                            else:
+                                extra_target = target_pixels[0]
+                                continue
                         for rev in (-1, 1):
                             if extra_target:
                                 api.set_pixel(*extra_target)
