@@ -3,9 +3,11 @@ import logging
 import os
 import time
 from logging.handlers import RotatingFileHandler
+from typing import Dict
 
 import requests
-from PIL import Image
+from PIL import Image, ImageColor, ImageDraw
+from requests.structures import CaseInsensitiveDict
 
 import config
 
@@ -47,113 +49,117 @@ class Pixel:
 
 class RequestsManager:
     def __init__(self):
-        if not os.path.exists('diskcache'):
-            with open('diskcache', 'w') as json_out:
-                json.dump({'get_pixels': time.time() + 3, 'set_pixel': time.time() + 120}, json_out)
-                self._get_pixels_time = time.time() + 3
-                self._set_pixel_time = time.time() + 120
-        else:
+        if os.path.exists('diskcache'):
             with open('diskcache') as json_in:
                 cache = json.load(json_in)
-                self._get_pixels_time = cache['get_pixels']
-                self._set_pixel_time = cache['set_pixel']
-        self.canvas: Image = None
+                self._get_headers = cache['get']
+                self._set_headers = cache['set']
+        else:
+            # TODO: requests.head
+            get_h = requests.head("https://pixels.pythondiscord.com/get_pixels")
+            self._get_headers = get_h.headers
+            set_h = requests.head("https://pixels.pythondiscord.com/set_pixel")
+            self._set_headers = set_h.headers
+        self.canvas = None
         self.logger = get_a_logger('RequestsManager')
+        self.last_get_pixels = 0
 
     @property
-    def get_pixels_time(self):
-        return self._get_pixels_time
+    def get_headers(self) -> CaseInsensitiveDict[str]:
+        return self._get_headers
 
     @property
-    def set_pixel_time(self):
-        return self._set_pixel_time
+    def set_headers(self) -> CaseInsensitiveDict[str]:
+        return self._set_headers
 
-    @get_pixels_time.setter
-    def get_pixels_time(self, value):
-        self._get_pixels_time = value
+    @get_headers.setter
+    def get_headers(self, value):
+        self._get_headers = value
         with open('diskcache', 'w') as json_out:
-            json.dump({
-                'get_pixels': self._get_pixels_time, 'set_pixel': self._set_pixel_time
-            }, json_out)
+            json.dump({'get': self._get_headers, 'set': self._set_headers}, json_out)
 
-    @set_pixel_time.setter
-    def set_pixel_time(self, value):
-        self._set_pixel_time = value
+    @set_headers.setter
+    def set_headers(self, value):
+        self._set_headers = value
         with open('diskcache', 'w') as json_out:
-            json.dump({
-                'get_pixels': self._get_pixels_time, 'set_pixel': self._set_pixel_time
-            }, json_out)
+            json.dump({'get': self._get_headers, 'set': self._set_headers}, json_out)
 
     def wait_for_get_pixels(self):
-        t = sleep_until(self.get_pixels_time, True)
+        t = 0
+        if self.get_headers.get('Cooldown-Reset', None):
+            self.logger.info(f"get_pixels is on cooldown!!!")
+            t = int(self.get_headers['Cooldown-Reset'])
+        elif int(self.get_headers['Requests-Remaining']) == 0:
+            t = int(self.get_headers['Requests-Reset']) / int(self.get_headers['Requests-Limit'])
         if t:
             self.logger.debug(f"get_pixels is sleeping for {t}")
-            sleep_until(self.get_pixels_time)
+            time.sleep(t)
 
     def get_pixels(self):
-        if sleep_until(self.get_pixels_time, True) > 0:
+        if self.last_get_pixels < time.time() - 2:
             return self.canvas.copy()
 
+        self.wait_for_get_pixels()
+
         size_r = requests.get("https://pixels.pythondiscord.com/get_size", headers=config.headers)
+        self.logger.debug(size_r.headers)
+        self.logger.debug(size_r.json())
         size_json = size_r.json()
         ww, hh = size_json["width"], size_json["height"]
+
         pixels_r = requests.get("https://pixels.pythondiscord.com/get_pixels", headers=config.headers)
         self.logger.debug(pixels_r.headers)
-        try:
-            remaining = int(pixels_r.headers['Requests-Remaining'])
-            limit = int(pixels_r.headers['Requests-Limit'])
-            if remaining == 0:
-                reset = int(pixels_r.headers['Requests-Reset'])
-                self.get_pixels_time = time.time() + reset + config.SLEEP_LENIENCY
-            if pixels_r.status_code == 200:
-                self.logger.debug("Got pixels. Saving 'current_canvas.png'")
-                image_data = []
-                raw = pixels_r.content
-                for r in chunks(raw, 3):
-                    pixel = Pixel(r)
-                    image_data.append(pixel.to_rgb())
-                img = Image.new('RGBA', (ww, hh))
-                img.putdata(image_data)
-                img.save('current_canvas.png')
-                self.canvas = img
-                if self.get_pixels_time < time.time():
-                    self.get_pixels_time = time.time() + 2
-                return img.copy()
-            else:
-                self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
-                self.logger.debug(pixels_r.content)
-        except:
+        self.logger.debug(pixels_r.content)
+        self.get_headers = pixels_r.headers
+
+        if pixels_r.status_code == 200:
+            self.logger.debug("Got pixels. Saving 'current_canvas.png'")
+            image_data = []
+            raw = pixels_r.content
+            for r in chunks(raw, 3):
+                pixel = Pixel(r)
+                image_data.append(pixel.to_rgb())
+            img = Image.new('RGBA', (ww, hh))
+            img.putdata(image_data)
+            img.save('current_canvas.png')
+            self.canvas = img
+            self.last_get_pixels = time.time()
+            return img.copy()
+        else:
+            self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
             self.logger.debug(pixels_r.content)
-            raise
 
     def wait_for_set_pixel(self):
-        t = sleep_until(self.set_pixel_time, True)
+        t = 0
+        if self.set_headers.get('Cooldown-Reset', None):
+            self.logger.info(f"set_pixel is on cooldown!!!")
+            t = int(self.set_headers['Cooldown-Reset'])
+        elif int(self.set_headers['Requests-Remaining']) == 0:
+            t = int(self.set_headers['Requests-Reset']) / int(self.set_headers['Requests-Limit'])
         if t:
-            self.logger.info(f"set_pixel is sleeping for {t}")
-            sleep_until(self.set_pixel_time)
+            self.logger.debug(f"set_pixel is sleeping for {t}")
+            time.sleep(t)
+
+    def can_set_pixel(self):
+        return int(self.set_headers['Requests-Remaining']) > 0
 
     def set_pixel(self, x: int, y: int, rgb: str):
         self.wait_for_set_pixel()
+
         set_r = requests.post("https://pixels.pythondiscord.com/set_pixel",
                               json={'x': x, 'y': y, 'rgb': rgb},
                               headers=config.headers)
-        self.logger.debug(set_r.headers)
+
         try:
-            try:
-                reset = int(set_r.headers['Requests-Reset'])
-                remaining = int(set_r.headers['Requests-Remaining'])
-                limit = int(set_r.headers['Requests-Limit'])
-            except KeyError:
-                self.logger.error("set_pixel is under cooldown!!!")
-                self.set_pixel_time = time.time() + int(set_r.headers['Cooldown-Reset']) + config.SLEEP_LENIENCY
+            self.logger.debug(set_r.headers)
+            self.set_headers = set_r.headers
+            if set_r.status_code == 200:
+                self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()}")
+                self.canvas.putpixel((x, y), ImageColor.getcolor(f"#{rgb}", "RGB"))
+                self.canvas.save('current_canvas.png')
             else:
-                if remaining == 0:
-                    self.set_pixel_time = time.time() + reset + config.SLEEP_LENIENCY
-                if set_r.status_code == 200:
-                    self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()}")
-                else:
-                    self.logger.error(f"set_pixel responded with {set_r.status_code}")
-                    self.logger.debug(set_r.json())
+                self.logger.error(f"set_pixel responded with {set_r.status_code}")
+                self.logger.debug(set_r.json())
         except:
             self.logger.debug(set_r.json())
             raise

@@ -17,7 +17,7 @@ def get_pixel_diff(first_pixel, second_pixel):
     return sum(abs(first_pixel[i] - second_pixel[i]) for i in range(3))
 
 
-def get_target_pixels(target_filename, td=True):
+def get_target_pixels(target_filename, top_down=True):
     rv = []
     total = 1
     current_canvas_img = api.get_pixels()
@@ -36,7 +36,7 @@ def get_target_pixels(target_filename, td=True):
             if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
                 rv.append((x, y, '%02x%02x%02x' % target_pixel[:3]))
 
-    if td:
+    if top_down:
         for xx in range(ww):
             for yy in range(hh):
                 compare_pixel(xx, yy)
@@ -52,42 +52,29 @@ def get_target_pixels(target_filename, td=True):
 def main_loop():
     global current_pixel_leniency
     on_exception_time = time.time() + 120
-    is_100 = True
     print_100 = False
 
     while True:
         # noinspection PyBroadException
         try:
+            is_100 = True
             for td in (True, False):
-                api.wait_for_set_pixel()
-                extra_target: Optional[Tuple] = None
-                for file_name in os.listdir('maintain'):
-                    target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
-                    left = len(target_pixels)
-                    done = total - left
-                    percent = done / total
-                    if target_pixels:
-                        is_100 = False
-                        print_100 = False
-                        logger.info(f"Working on {file_name} {int(percent * 100)}% "
-                                    f"{done}/{left}/{total} d~{current_pixel_leniency}")
-                        if len(target_pixels) == 1:
-                            if extra_target and extra_target != target_pixels[0]:
-                                api.set_pixel(*extra_target)
-                                api.set_pixel(*target_pixels[0])
-                            else:
-                                extra_target = target_pixels[0]
-                            break
-                        for rev in (-1, 1):
-                            if extra_target:
-                                api.set_pixel(*extra_target)
-                                continue
+                for rev in (-1, 1):
+                    api.wait_for_set_pixel()
+                    for file_name in os.listdir('maintain'):
+                        target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
+                        left = len(target_pixels)
+                        done = total - left
+                        percent = done / total
+                        if target_pixels:
+                            is_100 = False
+                            print_100 = False
+                            logger.info(f"Working on {file_name} {int(percent * 100)}% "
+                                        f"{done}/{left}/{total} d~{current_pixel_leniency}")
                             candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
                             api.set_pixel(*candidate)
                             target_pixels.remove(candidate)
-                        break
-                if extra_target:
-                    api.set_pixel(*extra_target)
+                            break  # because we worked on this file, we want to come back to in the next round
                 if is_100:
                     current_pixel_leniency = max(0, current_pixel_leniency - 1)
                     if not print_100:
