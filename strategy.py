@@ -1,6 +1,7 @@
 import os
 import random
 import time
+from typing import Optional, Tuple
 
 from PIL import Image
 
@@ -59,7 +60,7 @@ def main_loop():
         try:
             for td in (True, False):
                 api.wait_for_set_pixel()
-                extra_target = None
+                extra_target: Optional[Tuple] = None
                 for file_name in os.listdir('maintain'):
                     target_pixels, total = get_target_pixels(f'maintain/{file_name}', td)
                     left = len(target_pixels)
@@ -74,10 +75,9 @@ def main_loop():
                             if extra_target and extra_target != target_pixels[0]:
                                 api.set_pixel(*extra_target)
                                 api.set_pixel(*target_pixels[0])
-                                break
                             else:
                                 extra_target = target_pixels[0]
-                                continue
+                            break
                         for rev in (-1, 1):
                             if extra_target:
                                 api.set_pixel(*extra_target)
@@ -86,6 +86,8 @@ def main_loop():
                             api.set_pixel(*candidate)
                             target_pixels.remove(candidate)
                         break
+                if extra_target:
+                    api.set_pixel(*extra_target)
                 if is_100:
                     current_pixel_leniency = max(0, current_pixel_leniency - 1)
                     if not print_100:

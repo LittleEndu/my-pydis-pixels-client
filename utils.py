@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 import time
 from logging.handlers import RotatingFileHandler
 
@@ -45,10 +47,42 @@ class Pixel:
 
 class RequestsManager:
     def __init__(self):
-        self.get_pixels_time = time.time() + 3
-        self.set_pixel_time = time.time() + 120
+        if not os.path.exists('diskcache'):
+            with open('diskcache', 'w') as json_out:
+                json.dump({'get_pixels': time.time() + 3, 'set_pixel': time.time() + 120}, json_out)
+                self._get_pixels_time = time.time() + 3
+                self._set_pixel_time = time.time() + 120
+        else:
+            with open('diskcache') as json_in:
+                cache = json.load(json_in)
+                self._get_pixels_time = cache['get_pixels']
+                self._set_pixel_time = cache['set_pixel']
         self.canvas: Image = None
         self.logger = get_a_logger('RequestsManager')
+
+    @property
+    def get_pixels_time(self):
+        return self._get_pixels_time
+
+    @property
+    def set_pixel_time(self):
+        return self._set_pixel_time
+
+    @get_pixels_time.setter
+    def get_pixels_time(self, value):
+        self._get_pixels_time = value
+        with open('diskcache', 'w') as json_out:
+            json.dump({
+                'get_pixels': self._get_pixels_time, 'set_pixel': self._set_pixel_time
+            }, json_out)
+
+    @set_pixel_time.setter
+    def set_pixel_time(self, value):
+        self._set_pixel_time = value
+        with open('diskcache', 'w') as json_out:
+            json.dump({
+                'get_pixels': self._get_pixels_time, 'set_pixel': self._set_pixel_time
+            }, json_out)
 
     def wait_for_get_pixels(self):
         t = sleep_until(self.get_pixels_time, True)
