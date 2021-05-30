@@ -1,7 +1,6 @@
 import os
 import random
 import time
-from typing import Optional, Tuple
 
 from PIL import Image
 
@@ -31,7 +30,7 @@ def get_target_pixels(target_filename, top_down=True):
             target_pixel = target_img.getpixel((x, y))
         except IndexError:
             return
-        if target_pixel[3] > 10:
+        if len(target_pixel) == 3 or target_pixel[3] > 10:
             total += 1
             if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
                 rv.append((x, y, '%02x%02x%02x' % target_pixel[:3]))
@@ -50,6 +49,7 @@ def main_loop():
     on_exception_time = time.time() + 120
     print_100 = False
 
+    logger.info('starting main_loop')
     while True:
         # noinspection PyBroadException
         try:
@@ -66,7 +66,7 @@ def main_loop():
                         print_100 = False
                         logger.info(f"Working on {file_name} {int(percent * 100)}% "
                                     f"{done}/{left}/{total} d~{current_pixel_leniency}")
-                        candidate = target_pixels[int(random.random() ** 0.1 * len(target_pixels) * rev)]
+                        candidate = target_pixels[int(random.random() ** 0.5 * min(20, len(target_pixels)) * rev)]
                         api.set_pixel(*candidate)
                         target_pixels.remove(candidate)
                         break  # because we worked on this file, we want to come back to in the next round

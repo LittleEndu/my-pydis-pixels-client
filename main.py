@@ -3,7 +3,6 @@ import os
 import sys
 
 import config
-import strategy
 import utils
 
 if __name__ == '__main__':
@@ -22,4 +21,6 @@ if __name__ == '__main__':
     root_logger.setLevel(1)
     logging.info('\n\n\n')
     logging.info("Starting pydis-pixels canvas drawing")
+    import strategy
+
     strategy.main_loop()

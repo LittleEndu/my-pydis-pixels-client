@@ -32,61 +32,87 @@ def sleep_until(t):
     return max(t - time.time(), 0)
 
 
-class RequestsManager:
-    def __init__(self):
-        self.next_get = []
-        self.next_set = []
-        get_h = requests.head("https://pixels.pythondiscord.com/get_pixels", headers=config.headers)
-        self.get_headers = get_h.headers
-        if get_h.headers.get('Requests-Reset'):
-            self.next_get.append(time.time() + float(get_h.headers['Requests-Reset']))
-        set_h = requests.head("https://pixels.pythondiscord.com/set_pixel", headers=config.headers)
-        self.set_headers = set_h.headers
-        if set_h.headers.get('Requests-Reset'):
-            self.next_set.append(time.time() + float(set_h.headers['Requests-Reset']))
-        self.canvas = None
-        self.logger = get_a_logger('RequestsManager')
-        self.last_get_pixels = 0
-        self.logger.debug(f"Initialized new {self.__class__.__name__}\n\n")
+class RateLimitManager:
+    def __init__(self, endpoint, last_headers):
+        logger_name = f'{self.__class__.__name__}_{endpoint}'
+        self.logger = get_a_logger(logger_name)
+        self.logger.info(f"{logger_name} __init__")
+        self.endpoint = endpoint
 
-    def wait_for_ratelimit(self, endpoint, headers, next_one: list):
-        self.logger.debug(f"WAIT FOR {endpoint}: {next_one}")
+        self.next_allowed = []
+        for _ in range(int(last_headers['Requests-Remaining'])):
+            self.next_allowed.append(time.time())
+        while len(self.next_allowed) < int(last_headers['Requests-Limit']):
+            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']))
 
-        try:
-            if len(next_one) + int(headers['Requests-Remaining']) > int(headers['Requests-Limit']):
-                self.logger.debug("fixing error in next_one")
-                next_one.sort()
-                next_one.pop(0)
-        except KeyError:
-            pass
+    def sleep(self):
+        t = sleep_until(self.next_allowed[0] + config.SLEEP_LENIENCY)
+        if t:
+            self.logger.debug(f"{self.endpoint} will sleep for {t}")
+            time.sleep(t)
 
-        if headers.get('Cooldown-Reset', None):
-            self.logger.info(f"{endpoint} is on cooldown!!!")
+    def set_next_allowed(self, headers):
+        self.logger.debug(f"NEXT ALLOWED {[i - time.time() for i in self.next_allowed]}")
+        if not headers.get('Requests-Reset'):
+            self.logger.info(f"{self.endpoint} is on cooldown!!!")
             t = int(headers['Cooldown-Reset'])
             t += config.SLEEP_LENIENCY
-            self.logger.debug(f"{endpoint} will sleep for {t}")
+            self.logger.debug(f"{self.endpoint} will sleep for {t}")
             time.sleep(t)
-            headers = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
-            next_one.append(time.time() + float(headers['Requests-Reset']))
+            head = requests.head(f"https://pixels.pythondiscord.com/{self.endpoint}", headers=config.headers).headers
+            self.next_allowed = []
+            for _ in range(int(head['Requests-Remaining'])):
+                self.next_allowed.append(time.time())
+            while len(self.next_allowed) < int(head['Requests-Limit']):
+                self.next_allowed.append(time.time() + float(head['Requests-Reset']))
+        else:
+            while len(self.next_allowed) < int(headers['Requests-Limit']):
+                self.next_allowed.append(time.time() + int(headers['Requests-Period']))
+            while len(self.next_allowed) > int(headers['Requests-Limit']):
+                self.next_allowed.pop(0)
+            self.next_allowed.pop(0)
+            self.next_allowed.append(time.time() + int(headers['Requests-Period']))
+        self.logger.debug(f"next allowed has been set to: {[i - time.time() for i in self.next_allowed]}")
 
-        if not next_one:
-            self.logger.debug('no next')
-            return
+    def request(self, method, **kwargs):
+        self.sleep()
+        r = requests.request(method,
+                             f"https://pixels.pythondiscord.com/{self.endpoint}",
+                             headers=config.headers, **kwargs)
+        self.logger.debug(r.headers)
+        self.set_next_allowed(r.headers)
+        return r
 
-        if int(headers['Requests-Remaining']) > 0:
-            self.logger.debug('still remaining')
-            return
+    def get(self, **kwargs):
+        return self.request('get', **kwargs)
 
-        t = sleep_until(next_one.pop(0))
-        if t:
+    def post(self, **kwargs):
+        return self.request('post', **kwargs)
+
+
+class RequestsManager:
+    def __init__(self):
+        self.logger = get_a_logger(f'{self.__class__.__name__}')
+        self.logger.info("\n\n")
+        self.logger.info(f"{self.__class__.__name__} __init__")
+        self.get_manager = RateLimitManager('get_pixels', self.get_headers_for('get_pixels'))
+        self.set_manager = RateLimitManager('set_pixel', self.get_headers_for('set_pixel'))
+        self.canvas = None
+        self.last_get_pixels = 0
+
+    def get_headers_for(self, endpoint):
+        h = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
+        if not h.get('Requests-Reset'):
+            self.logger.info(f"{endpoint} is on cooldown!!!")
+            t = int(h['Cooldown-Reset'])
             t += config.SLEEP_LENIENCY
             self.logger.debug(f"{endpoint} will sleep for {t}")
             time.sleep(t)
-        else:
-            self.logger.debug(f"no sleep necessary")
+            h = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
+        return h
 
     def wait_for_get_pixels(self):
-        self.wait_for_ratelimit('get_pixels', self.get_headers, self.next_get)
+        self.get_manager.sleep()
 
     def get_pixels(self):
         if self.last_get_pixels > time.time() - 2 and self.canvas:
@@ -101,20 +127,18 @@ class RequestsManager:
         size_json = size_r.json()
         ww, hh = size_json["width"], size_json["height"]
 
-        pixels_r = requests.get("https://pixels.pythondiscord.com/get_pixels", headers=config.headers)
+        pixels_r = self.get_manager.get()
         self.logger.debug(pixels_r.headers)
         # self.logger.debug(pixels_r.content)
-        self.get_headers = pixels_r.headers
         if pixels_r.status_code == 200:
-            self.next_get.append(time.time() + float(pixels_r.headers['Requests-Reset']))
             self.logger.debug("Got pixels. Saving 'current_canvas.png'")
             raw = pixels_r.content
-            image_data = [tuple(map(int, r)) for r in chunks(raw, 3)]
-            img = Image.new('RGBA', (ww, hh))
-            img.putdata(image_data)
+            img = Image.frombytes('RGB', (ww, hh), raw)
             img.save('current_canvas.png')
             self.canvas = img
             self.last_get_pixels = time.time()
+            with open("raw_canvas_bytes", 'wb') as canvas_out:
+                canvas_out.write(raw)
             return img.copy()
         else:
             self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
@@ -122,40 +146,20 @@ class RequestsManager:
             raise Exception
 
     def wait_for_set_pixel(self):
-        self.wait_for_ratelimit('set_pixel', self.set_headers, self.next_set)
+        self.set_manager.sleep()
 
     def request_set_pixel_sleep(self):
-        self.logger.debug("set_pixel requested to sleep")
-        try:
-            if int(self.set_headers['Requests-Remaining']) == 0:
-                t = sleep_until(self.next_set[0])
-                if t:
-                    t += config.SLEEP_LENIENCY
-                    self.logger.debug(f"set_pixel will sleep for {t}")
-                    time.sleep(t)
-        except KeyError:
-            t = int(self.set_headers['Cooldown-Reset'])
-            t += config.SLEEP_LENIENCY
-            self.logger.info("set_pixel is on cooldown!!!")
-            self.logger.debug(f"set_pixel will sleep for {t}")
-            time.sleep(t)
-            self.set_headers = requests.head(
-                f"https://pixels.pythondiscord.com/set_pixel", headers=config.headers
-            ).headers
+        self.wait_for_set_pixel()
 
     def set_pixel(self, x: int, y: int, rgb: str):
         self.logger.debug("SET_PIXEL")
         self.wait_for_set_pixel()
 
-        set_r = requests.post("https://pixels.pythondiscord.com/set_pixel",
-                              json={'x': x, 'y': y, 'rgb': rgb},
-                              headers=config.headers)
+        set_r = self.set_manager.post(json={'x': x, 'y': y, 'rgb': rgb})
 
         self.logger.debug(set_r.json())
         self.logger.debug(set_r.headers)
-        self.set_headers = set_r.headers
         if set_r.status_code == 200:
-            self.next_set.append(time.time() + float(set_r.headers['Requests-Reset']))
             current_pixel = self.canvas.getpixel((x, y))
             self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()} "
                              f"(from #{'%02x%02x%02x' % current_pixel[:3]})")
