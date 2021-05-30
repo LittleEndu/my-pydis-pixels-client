@@ -64,8 +64,9 @@ def main_loop():
                     if target_pixels:
                         is_100 = False
                         print_100 = False
-                        logger.info(f"Working on {file_name} {int(percent * 100)}% "
-                                    f"{done}/{left}/{total} d~{current_pixel_leniency}")
+                        logger.info(f"Working on {file_name} {int(percent * 100)}% {done}/{total} "
+                                    f"{utils.display_time(left*api.average_sleep_seconds())} left "
+                                    f"d~{current_pixel_leniency}")
                         candidate = target_pixels[int(random.random() ** 0.5 * min(20, len(target_pixels)) * rev)]
                         api.set_pixel(*candidate)
                         target_pixels.remove(candidate)

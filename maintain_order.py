@@ -40,4 +40,4 @@ for p in ('maintain', 'ignore'):
         left = len(missing)
         done = total - left
         percent = done / total
-        print(f"filename: {i} {int(percent * 100)}% {done}/{left}/{total}")
+        print(f"filename: {i} {int(percent * 100)}% {done}/{total}  left:{left}")

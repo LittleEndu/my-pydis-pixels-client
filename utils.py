@@ -28,6 +28,27 @@ def chunks(list_in, n):
         yield list_in[i:i + n]
 
 
+intervals = (
+    ('h', 60 * 60),
+    ('m', 60),
+    ('s', 1),
+)
+
+
+def display_time(seconds, granularity=2):
+    seconds = int(seconds)
+    result = []
+
+    for name, count in intervals:
+        value = seconds // count
+        if value:
+            seconds -= value * count
+            if value == 1:
+                name = name.rstrip('s')
+            result.append("{}{}".format(value, name))
+    return ''.join(result[:granularity])
+
+
 def sleep_until(t):
     return max(t - time.time(), 0)
 
@@ -45,6 +66,8 @@ class RateLimitManager:
         while len(self.next_allowed) < int(last_headers['Requests-Limit']):
             self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']))
 
+        self.average_sleep = int(last_headers['Requests-Period']) / int(last_headers['Requests-Limit'])
+
     def sleep(self):
         t = sleep_until(self.next_allowed[0] + config.SLEEP_LENIENCY)
         if t:
@@ -59,12 +82,12 @@ class RateLimitManager:
             t += config.SLEEP_LENIENCY
             self.logger.debug(f"{self.endpoint} will sleep for {t}")
             time.sleep(t)
-            head = requests.head(f"https://pixels.pythondiscord.com/{self.endpoint}", headers=config.headers).headers
+            headers = requests.head(f"https://pixels.pythondiscord.com/{self.endpoint}", headers=config.headers).headers
             self.next_allowed = []
-            for _ in range(int(head['Requests-Remaining'])):
+            for _ in range(int(headers['Requests-Remaining'])):
                 self.next_allowed.append(time.time())
-            while len(self.next_allowed) < int(head['Requests-Limit']):
-                self.next_allowed.append(time.time() + float(head['Requests-Reset']))
+            while len(self.next_allowed) < int(headers['Requests-Limit']):
+                self.next_allowed.append(time.time() + float(headers['Requests-Reset']))
         else:
             while len(self.next_allowed) < int(headers['Requests-Limit']):
                 self.next_allowed.append(time.time() + int(headers['Requests-Period']))
@@ -73,6 +96,7 @@ class RateLimitManager:
             self.next_allowed.pop(0)
             self.next_allowed.append(time.time() + int(headers['Requests-Period']))
         self.logger.debug(f"next allowed has been set to: {[i - time.time() for i in self.next_allowed]}")
+        self.average_sleep = int(headers['Requests-Period']) / int(headers['Requests-Limit'])
 
     def request(self, method, **kwargs):
         self.sleep()
@@ -132,13 +156,17 @@ class RequestsManager:
         # self.logger.debug(pixels_r.content)
         if pixels_r.status_code == 200:
             self.logger.debug("Got pixels. Saving 'current_canvas.png'")
+
             raw = pixels_r.content
+            with open("raw_canvas_bytes", 'wb') as canvas_out:
+                canvas_out.write(raw)
+
             img = Image.frombytes('RGB', (ww, hh), raw)
             img.save('current_canvas.png')
             self.canvas = img
+
             self.last_get_pixels = time.time()
-            with open("raw_canvas_bytes", 'wb') as canvas_out:
-                canvas_out.write(raw)
+
             return img.copy()
         else:
             self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
@@ -168,3 +196,6 @@ class RequestsManager:
         else:
             self.logger.error(f"set_pixel responded with {set_r.status_code}")
             raise Exception
+
+    def average_sleep_seconds(self):
+        return int(self.set_manager.average_sleep)
