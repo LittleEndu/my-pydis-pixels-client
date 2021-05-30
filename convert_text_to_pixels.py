@@ -1,6 +1,7 @@
 from PIL import Image
 
-TEXT_TO_CONVERT = "Big PP bruh moment wholesome 100 yametekudastop    https://pydis.org/.env | 403 Forbidden" + "\n"*10*5
+TEXT_TO_CONVERT = "Big PP bruh moment wholesome 100 yametekudastop F  https://pydis.org/.env | 418 I'm a teapot" + "\n"*10*5
+
 
 while len(TEXT_TO_CONVERT) % 3 != 0:
     TEXT_TO_CONVERT += " "

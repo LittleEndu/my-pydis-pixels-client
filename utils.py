@@ -189,8 +189,10 @@ class RequestsManager:
         self.logger.debug(set_r.headers)
         if set_r.status_code == 200:
             current_pixel = self.canvas.getpixel((x, y))
-            self.logger.info(f"Successfully set ({x}, {y}) to #{rgb.upper()} "
-                             f"(from #{'%02x%02x%02x' % current_pixel[:3]})")
+            bb = bytes.fromhex(rgb)
+            bb_before = bytes.fromhex('%02x%02x%02x' % current_pixel[:3])
+            self.logger.info(f"Successfully set ({x}, {y}) "
+                             f"from {bb_before}#{'%02x%02x%02x' % current_pixel[:3]} to {bb}#{rgb.upper()}")
             self.canvas.putpixel((x, y), ImageColor.getcolor(f"#{rgb}", "RGB"))
             self.canvas.save('current_canvas.png')
         else:

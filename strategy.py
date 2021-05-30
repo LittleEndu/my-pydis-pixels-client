@@ -29,16 +29,21 @@ def get_target_pixels(target_filename, top_down=True):
         try:
             target_pixel = target_img.getpixel((x, y))
         except IndexError:
-            return
+            return False
         if len(target_pixel) == 3 or target_pixel[3] > 10:
             total += 1
             if get_pixel_diff(canvas_pixel[:3], target_pixel[:3]) > current_pixel_leniency:
                 rv.append((x, y, '%02x%02x%02x' % target_pixel[:3]))
+        return True
 
     first, second = (ww, hh) if top_down else (hh, ww)
+    s = 0
     for f in range(first):
         for s in range(second):
-            compare_pixel(f, s) if top_down else compare_pixel(s, f)
+            if not (compare_pixel(f, s) if top_down else compare_pixel(s, f)):
+                break
+        if s == 0:
+            break
 
     target_img.close()
     return rv, total
