@@ -13,7 +13,7 @@ def get_pixel_diff(first_pixel, second_pixel):
 
 def get_target_pixels(target_filename):
     rv = []
-    total = 1
+    total = 0
     target_img = Image.open(target_filename)
     ww, hh = current_canvas_img.size
 
@@ -39,5 +39,5 @@ for p in ('maintain', 'ignore'):
         missing, total = get_target_pixels(f"{p}/{i}")
         left = len(missing)
         done = total - left
-        percent = done / total
+        percent = done / total if total != 0 else 0
         print(f"filename: {i} {int(percent * 100)}% {done}/{total}  left:{left}")

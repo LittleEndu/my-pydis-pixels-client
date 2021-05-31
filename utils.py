@@ -64,15 +64,22 @@ class RateLimitManager:
         for _ in range(int(last_headers['Requests-Remaining'])):
             self.next_allowed.append(time.time())
         while len(self.next_allowed) < int(last_headers['Requests-Limit']):
-            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']))
+            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']) + config.SLEEP_LENIENCY)
 
         self.average_sleep = int(last_headers['Requests-Period']) / int(last_headers['Requests-Limit'])
 
-    def sleep(self):
-        t = sleep_until(self.next_allowed[0] + config.SLEEP_LENIENCY)
+    def sleep(self, addition=None):
+        t = max(
+            0,
+            sleep_until(self.next_allowed[0] + config.SLEEP_LENIENCY) + (addition or 0),
+        )
+
         if t:
-            self.logger.debug(f"{self.endpoint} will sleep for {t}")
+            if t > 2 or addition is None:
+                self.logger.debug(f"{self.endpoint} will sleep for {t}")
             time.sleep(t)
+        else:
+            self.logger.debug(f"{self.endpoint} has no need to sleep")
 
     def set_next_allowed(self, headers):
         self.logger.debug(f"NEXT ALLOWED {[i - time.time() for i in self.next_allowed]}")
@@ -88,6 +95,7 @@ class RateLimitManager:
                 self.next_allowed.append(time.time())
             while len(self.next_allowed) < int(headers['Requests-Limit']):
                 self.next_allowed.append(time.time() + float(headers['Requests-Reset']))
+            self.logger.debug(f"next allowed reset to: {[i - time.time() for i in self.next_allowed]}")
         else:
             while len(self.next_allowed) < int(headers['Requests-Limit']):
                 self.next_allowed.append(time.time() + int(headers['Requests-Period']))
@@ -126,7 +134,7 @@ class RequestsManager:
 
     def get_headers_for(self, endpoint):
         h = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
-        if not h.get('Requests-Reset'):
+        while not h.get('Requests-Reset'):
             self.logger.info(f"{endpoint} is on cooldown!!!")
             t = int(h['Cooldown-Reset'])
             t += config.SLEEP_LENIENCY
@@ -177,7 +185,7 @@ class RequestsManager:
         self.set_manager.sleep()
 
     def request_set_pixel_sleep(self):
-        self.wait_for_set_pixel()
+        self.set_manager.sleep(-1)
 
     def set_pixel(self, x: int, y: int, rgb: str):
         self.logger.debug("SET_PIXEL")
