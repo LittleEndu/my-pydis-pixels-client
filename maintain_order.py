@@ -33,7 +33,7 @@ def get_target_pixels(target_filename):
     return rv, total
 
 
-for p in ('maintain', 'ignore'):
+for p in ('ignore', 'maintain'):
     print("-" * 5 + f"\n{p}\n" + "-" * 5)
     for i in os.listdir(p):
         missing, total = get_target_pixels(f"{p}/{i}")

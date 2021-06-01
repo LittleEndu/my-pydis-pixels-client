@@ -57,13 +57,40 @@ def template_needed_work(template_name, top_down, is_reversed):
         logger.info(
             f"Working on {template_name} "
             f"({', '.join(map(lambda a: str(a).rjust(3, '0'), candidate[:2]))})"
-            f" {str(int(percent * 100)).rjust(3,'0')}% {done}/{total} "
+            f" {str(int(percent * 100)).rjust(3, '0')}% {done}/{total} "
             f"{utils.display_time(left * api.average_sleep_seconds())} left "
         )
         api.set_pixel(*candidate)
         target_pixels.remove(candidate)
         return True
     return False
+
+
+def save_last_not_blacklisted_pixels():
+    current_canvas_img = api.get_pixels()
+    if os.path.exists('last_not_blacklisted.png'):
+        not_blacklisted = Image.open('last_not_blacklisted.png')
+    else:
+        not_blacklisted = Image.new('RGBA', current_canvas_img.size)
+    if current_canvas_img.size != not_blacklisted.size:
+        t = Image.new('RGBA', current_canvas_img.size)
+        t.paste(not_blacklisted)
+        not_blacklisted = t.copy()
+
+    for black_name in os.listdir('blacklisted'):
+        black_img = Image.open(f'blacklisted/{black_name}')
+        for x in range(current_canvas_img.size[0]):
+            for y in range(current_canvas_img.size[1]):
+                canvas_pixel = current_canvas_img.getpixel((x, y))
+                try:
+                    black_pixel = black_img.getpixel((x, y))
+                except IndexError:
+                    break
+                if (
+                    len(black_pixel) == 3 or black_pixel[3] > 50
+                ) and canvas_pixel[:3] != black_pixel[:3]:
+                    not_blacklisted.putpixel((x, y), canvas_pixel)
+    not_blacklisted.save('last_not_blacklisted.png')
 
 
 def main_loop():
@@ -85,6 +112,7 @@ def main_loop():
                         templates_worked_on_this_round += 1
                         if templates_worked_on_this_round >= 2:
                             break  # because we worked on this file, we want to come back to in the next round
+                save_last_not_blacklisted_pixels()
             if is_100:
                 if not print_100:
                     logger.info("All images 100% done")

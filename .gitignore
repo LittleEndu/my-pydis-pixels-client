@@ -1,2 +1,11 @@
 /config.py
 /logs/
+/maintain/
+/ignore/
+/fix_transparency_of/
+/blacklisted/
+/raw_canvas_bytes
+/current_canvas.png
+/converted_text.png
+/all_templates.png
+/last_not_blacklisted.png
