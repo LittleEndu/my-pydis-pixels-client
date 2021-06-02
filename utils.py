@@ -59,31 +59,43 @@ class RateLimitManager:
         logger_name = f'{self.__class__.__name__}_{endpoint}'
         self.logger = get_a_logger(logger_name)
         self.logger.info(f"{logger_name} __init__")
+        self.logger.debug(last_headers)
         self.endpoint = endpoint
 
-        self.next_allowed = []
-        for _ in range(int(last_headers['Requests-Remaining'])):
-            self.next_allowed.append(time.time())
-        while len(self.next_allowed) < int(last_headers['Requests-Limit']):
-            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']) + 10)
+        self.next_allowed = time.time()
+        self.is_locked_until = 0
+
+        if last_headers.get('endpoint-unlock'):
+            self.is_locked_until = time.time() + float(last_headers['endpoint-unlock'])
+            return
+
+        if int(last_headers['Requests-Remaining']) == 0:
+            self.next_allowed = time.time() + float(last_headers['Requests-Reset'])
 
         self.average_sleep = int(last_headers['Requests-Period']) / int(last_headers['Requests-Limit'])
+        self.logger.debug(f"next allowed has been set to: {self.next_allowed - time.time()}")
+        self.logged_no_sleep = False
 
-    def sleep(self, addition=None):
+    def sleep(self, addition=None, requester=None):
+        if self.is_locked_until > time.time():
+            return
+
         t = max(
             0,
-            sleep_until(self.next_allowed[0] + config.SLEEP_LENIENCY) + (addition or 0),
+            sleep_until(self.next_allowed + config.SLEEP_LENIENCY) + (addition or 0),
         )
 
         if t:
             if t > 2 or addition is None:
-                self.logger.debug(f"{self.endpoint} will sleep for {t}")
+                self.logged_no_sleep = False
+                self.logger.debug(f"requested by {requester} - {self.endpoint} will sleep for {t}")
             time.sleep(t)
-        else:
-            self.logger.debug(f"{self.endpoint} has no need to sleep")
+        elif not self.logged_no_sleep:
+            self.logged_no_sleep = True
+            self.logger.debug(f"requested by {requester} - {self.endpoint} has no need to sleep")
 
     def set_next_allowed(self, headers):
-        self.logger.debug(f"NEXT ALLOWED {[i - time.time() for i in self.next_allowed]}")
+        self.logger.debug(f"NEXT ALLOWED {self.next_allowed - time.time()}")
         if not headers.get('Requests-Reset'):
             self.logger.info(f"{self.endpoint} is on cooldown!!!")
             t = int(headers['Cooldown-Reset'])
@@ -91,29 +103,23 @@ class RateLimitManager:
             self.logger.debug(f"{self.endpoint} will sleep for {t}")
             time.sleep(t)
             headers = requests.head(f"https://pixels.pythondiscord.com/{self.endpoint}", headers=config.headers).headers
-            self.next_allowed = []
-            for _ in range(int(headers['Requests-Remaining'])):
-                self.next_allowed.append(time.time())
-            while len(self.next_allowed) < int(headers['Requests-Limit']):
-                self.next_allowed.append(time.time() + float(headers['Requests-Reset']))
-            self.logger.debug(f"next allowed reset to: {[i - time.time() for i in self.next_allowed]}")
+            self.next_allowed = time.time()
+            self.logger.debug(f"next allowed reset to: {self.next_allowed - time.time()}")
+        elif int(headers['Requests-Remaining']) > 0:
+            self.next_allowed = time.time()
         else:
-            while len(self.next_allowed) < int(headers['Requests-Limit']):
-                self.next_allowed.append(time.time() + int(headers['Requests-Period']))
-            while len(self.next_allowed) > int(headers['Requests-Limit']):
-                self.next_allowed.pop(0)
-            self.next_allowed.pop(0)
-            self.next_allowed.append(time.time() + int(headers['Requests-Period']))
-        self.logger.debug(f"next allowed has been set to: {[i - time.time() for i in self.next_allowed]}")
+            self.next_allowed = time.time() + float(headers['Requests-Reset'])
+        self.logger.debug(f"next allowed has been set to: {self.next_allowed - time.time()}")
         self.average_sleep = int(headers['Requests-Period']) / int(headers['Requests-Limit'])
 
     def request(self, method, **kwargs):
-        self.sleep()
+        self.sleep(requester='self')
         r = requests.request(method,
                              f"https://pixels.pythondiscord.com/{self.endpoint}",
                              headers=config.headers, **kwargs)
         self.logger.debug(r.headers)
-        self.set_next_allowed(r.headers)
+        if self.is_locked_until < time.time():
+            self.set_next_allowed(r.headers)
         return r
 
     def get(self, **kwargs):
@@ -128,18 +134,22 @@ class RequestsManager:
         self.logger = get_a_logger(f'{self.__class__.__name__}')
         self.logger.info("\n\n")
         self.logger.info(f"{self.__class__.__name__} __init__")
+        self.get_pixels_disabled_for = 0
         self.get_manager = RateLimitManager('get_pixels', self.get_headers_for('get_pixels'))
         self.set_manager = RateLimitManager('set_pixel', self.get_headers_for('set_pixel'))
         self.canvas = None
         self.last_get_pixels = 0
-        self.get_pixels_disabled_for = 0
 
     @property
     def pixels_disabled(self):
         return self.get_pixels_disabled_for > time.time()
 
     def get_headers_for(self, endpoint):
-        h = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
+        r = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers)
+        if r.status_code == 410 and endpoint == 'get_pixels':
+            self.get_pixels_disabled_for = time.time() + float(r.headers['endpoint-unlock'])
+            return r.headers
+        h = r.headers
         while not h.get('Requests-Reset'):
             self.logger.info(f"{endpoint} is on cooldown!!!")
             t = int(h['Cooldown-Reset'])
@@ -158,7 +168,6 @@ class RequestsManager:
             return self.canvas.copy()
 
         self.logger.debug("GET_PIXELS")
-        self.wait_for_get_pixels()
 
         size_r = requests.get("https://pixels.pythondiscord.com/get_size", headers=config.headers)
         self.logger.debug(size_r.headers)
@@ -187,7 +196,7 @@ class RequestsManager:
             img = Image.new('RGBA', (ww, hh))
             if os.path.isfile('current_canvas.png'):
                 current = Image.open('current_canvas.png')
-                img.paste(current, mask=current)
+                img.paste(current)
             else:
                 img.save('current_canvas.png')
             self.canvas = img.copy()
@@ -200,14 +209,13 @@ class RequestsManager:
         return img.copy()
 
     def wait_for_set_pixel(self):
-        self.set_manager.sleep()
+        self.set_manager.sleep(requester='manager')
 
     def request_set_pixel_sleep(self):
-        self.set_manager.sleep(-1)
+        self.set_manager.sleep(-1, requester='strategy')
 
     def set_pixel(self, x: int, y: int, rgb: str):
         self.logger.debug("SET_PIXEL")
-        self.wait_for_set_pixel()
 
         set_r = self.set_manager.post(json={'x': x, 'y': y, 'rgb': rgb})
 
@@ -218,7 +226,7 @@ class RequestsManager:
             bb = bytes.fromhex(rgb)
             bb_before = bytes.fromhex('%02x%02x%02x' % current_pixel[:3])
             self.logger.info(f"Successfully set ({x}, {y}) "
-                             f"from {bb_before}#{'%02x%02x%02x' % current_pixel[:3]} to {bb}#{rgb.upper()}")
+                             f"from {bb_before}#{('%02x%02x%02x' % current_pixel[:3]).upper()} to {bb}#{rgb.upper()}")
             self.canvas.putpixel((x, y), ImageColor.getcolor(f"#{rgb}", "RGB"))
             self.canvas.save('current_canvas.png')
         else:

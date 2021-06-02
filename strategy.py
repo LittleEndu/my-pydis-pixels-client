@@ -11,15 +11,18 @@ api = utils.RequestsManager()
 logger = utils.get_a_logger('strategy')
 
 
-def is_my_pixel(x, y, _):
+def is_my_pixel(x, y, *_):
+    if api.pixels_disabled:
+        return (x + y) % 4 == 2
     return True
 
 
 def get_template():
-    if not api.pixels_disabled:
-        for i in os.listdir('maintain'):
-            yield os.path.join('maintain', i)
-    for i in os.listdir('animated_templates'):
+    to_maintain = list(os.listdir('maintain'))
+    to_animate = list(os.listdir('animated_templates'))
+    for i in to_maintain:
+        yield os.path.join('maintain', i)
+    for i in to_animate:
         directory = os.path.join('animated_templates', i)
         if os.path.isdir(directory):
             yield template_manager.Template(directory).get_current_frame_path()[0]
@@ -28,14 +31,23 @@ def get_template():
 def get_blind_pixels():
     current_canvas_img = api.get_pixels()
     ww, hh = current_canvas_img.size
+    already_yielded = 0
     for template_path in get_template():
         img = Image.open(template_path).convert('RGBA')
-
-        for x in ww:
-            for y in hh:
-                pixel = img.getpixel(x, y)
-                if pixel[3] > 10:
-                    yield x, y, '%02x%02x%02x' % pixel[:3]
+        random_pixels = []
+        for x in range(ww):
+            for y in range(hh):
+                try:
+                    pixel = img.getpixel((x, y))
+                except IndexError:
+                    break
+                if pixel[3] > 10 and is_my_pixel(x, y):
+                    random_pixels.append((x, y, '%02x%02x%02x' % pixel[:3]))
+        if already_yielded < 9:
+            pixel = random.choice(random_pixels)
+            random_pixels.remove(pixel)
+            yield pixel
+            already_yielded += 1
 
 
 def get_pixel_diff(first_pixel, second_pixel):
@@ -58,7 +70,7 @@ def get_target_pixels(target_filepath, top_down=True):
             return False
         if target_pixel[3] > 50:
             total += 1
-            if canvas_pixel[:3] != target_pixel[:3]:
+            if canvas_pixel[:3] != target_pixel[:3] and is_my_pixel(x, y):
                 rv.append((x, y, '%02x%02x%02x' % target_pixel[:3]))
         return True
 
@@ -81,9 +93,7 @@ def template_needed_work(template_path, top_down, is_reversed):
     done = total - left
     percent = done / total if total != 0 else 1
     if target_pixels:
-        candidate = target_pixels.pop(int(random.random() ** 0.5 * min(20, len(target_pixels)) * is_reversed))
-        while not is_my_pixel(*candidate):
-            candidate = target_pixels.pop(int(random.random() ** 0.5 * min(20, len(target_pixels)) * is_reversed))
+        candidate = target_pixels[int(random.random() ** 0.5 * min(20, len(target_pixels)) * is_reversed)]
         logger.info(
             f"Working on {os.path.relpath(template_path)} "
             f"({', '.join(map(lambda a: str(a).rjust(3, '0'), candidate[:2]))})"
@@ -133,9 +143,9 @@ def main_loop():
         try:
             is_100 = True
             for rev, td in [(-1, True), (-1, False), (1, True), (1, False)]:
-                api.request_set_pixel_sleep()
                 templates_worked_on_this_round = 0
                 for file_path in get_template():
+                    api.request_set_pixel_sleep()
                     if template_needed_work(file_path, td, rev):
                         is_100 = False
                         first_100 = False
@@ -147,6 +157,7 @@ def main_loop():
                 if not first_100:
                     first_100 = True
                     logger.info("All images 100% done")
+                    all_pixels_generator = get_blind_pixels()
                 time.sleep(5)
                 api.wait_for_get_pixels()
                 if api.pixels_disabled:

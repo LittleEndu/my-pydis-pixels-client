@@ -34,12 +34,22 @@ class Template:
         self.current_frame = index
         return index, changed
 
-    def get_current_frame_path(self):
-        index, changed = self.get_current_frame_index()
+    def get_previous_frame_index(self):
+        self.get_current_frame_index()
+        return (self.current_frame - 1) % self.length
+
+    def get_frame_path(self, index):
         return os.path.join(
             self.directory,
             sorted([i for i in os.listdir(self.directory) if i != 'canvas.json'])[index]
-        ), changed
+        )
+
+    def get_current_frame_path(self):
+        index, changed = self.get_current_frame_index()
+        return self.get_frame_path(index), changed
+
+    def get_previous_frame_path(self):
+        return self.get_frame_path(self.get_previous_frame_index())
 
 
 def get_template_for(directory):
