@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from logging.handlers import RotatingFileHandler
 
@@ -64,7 +65,7 @@ class RateLimitManager:
         for _ in range(int(last_headers['Requests-Remaining'])):
             self.next_allowed.append(time.time())
         while len(self.next_allowed) < int(last_headers['Requests-Limit']):
-            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']) + config.SLEEP_LENIENCY)
+            self.next_allowed.append(time.time() + float(last_headers['Requests-Reset']) + 10)
 
         self.average_sleep = int(last_headers['Requests-Period']) / int(last_headers['Requests-Limit'])
 
@@ -131,6 +132,11 @@ class RequestsManager:
         self.set_manager = RateLimitManager('set_pixel', self.get_headers_for('set_pixel'))
         self.canvas = None
         self.last_get_pixels = 0
+        self.get_pixels_disabled_for = 0
+
+    @property
+    def pixels_disabled(self):
+        return self.get_pixels_disabled_for > time.time()
 
     def get_headers_for(self, endpoint):
         h = requests.head(f"https://pixels.pythondiscord.com/{endpoint}", headers=config.headers).headers
@@ -144,10 +150,11 @@ class RequestsManager:
         return h
 
     def wait_for_get_pixels(self):
-        self.get_manager.sleep()
+        if not self.pixels_disabled:
+            self.get_manager.sleep()
 
     def get_pixels(self):
-        if self.last_get_pixels > time.time() - 2 and self.canvas:
+        if (self.last_get_pixels > time.time() - 2 or self.pixels_disabled) and self.canvas:
             return self.canvas.copy()
 
         self.logger.debug("GET_PIXELS")
@@ -162,8 +169,10 @@ class RequestsManager:
         pixels_r = self.get_manager.get()
         self.logger.debug(pixels_r.headers)
         # self.logger.debug(pixels_r.content)
+
         if pixels_r.status_code == 200:
             self.logger.debug("Got pixels. Saving 'current_canvas.png'")
+            self.last_get_pixels = time.time()
 
             raw = pixels_r.content
             with open("raw_canvas_bytes", 'wb') as canvas_out:
@@ -173,13 +182,22 @@ class RequestsManager:
             img.save('current_canvas.png')
             self.canvas = img
 
-            self.last_get_pixels = time.time()
-
-            return img.copy()
+        elif pixels_r.status_code == 410:
+            self.logger.debug('canvas reading is disabled')
+            img = Image.new('RGBA', (ww, hh))
+            if os.path.isfile('current_canvas.png'):
+                current = Image.open('current_canvas.png')
+                img.paste(current, mask=current)
+            else:
+                img.save('current_canvas.png')
+            self.canvas = img.copy()
+            self.get_pixels_disabled_for = time.time() + float(pixels_r.headers['endpoint-unlock'])
         else:
             self.logger.error(f"get_pixels responded with {pixels_r.status_code}")
             self.logger.debug(pixels_r.content)
             raise Exception
+
+        return img.copy()
 
     def wait_for_set_pixel(self):
         self.set_manager.sleep()

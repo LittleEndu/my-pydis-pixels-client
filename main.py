@@ -6,7 +6,7 @@ import config
 import utils
 
 if __name__ == '__main__':
-    for path in ['logs', 'maintain', 'blacklisted']:
+    for path in ['logs', 'maintain', 'blacklisted', 'animated_templates']:
         if not os.path.isdir(path):
             os.makedirs(path)
 
