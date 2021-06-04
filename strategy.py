@@ -31,10 +31,9 @@ def get_template():
 def get_blind_pixels():
     current_canvas_img = api.get_pixels()
     ww, hh = current_canvas_img.size
-    already_yielded = 0
-    for template_path in get_template():
+    for template in os.listdir('maintain'):
+        template_path = os.path.join('maintain', template )
         img = Image.open(template_path).convert('RGBA')
-        random_pixels = []
         for x in range(ww):
             for y in range(hh):
                 try:
@@ -42,12 +41,7 @@ def get_blind_pixels():
                 except IndexError:
                     break
                 if pixel[3] > 10 and is_my_pixel(x, y):
-                    random_pixels.append((x, y, '%02x%02x%02x' % pixel[:3]))
-        if already_yielded < 9:
-            pixel = random.choice(random_pixels)
-            random_pixels.remove(pixel)
-            yield pixel
-            already_yielded += 1
+                    yield x, y, '%02x%02x%02x' % pixel[:3]
 
 
 def get_pixel_diff(first_pixel, second_pixel):
@@ -144,9 +138,10 @@ def main_loop():
             is_100 = True
             for rev, td in [(-1, True), (-1, False), (1, True), (1, False)]:
                 templates_worked_on_this_round = 0
+                api.request_set_pixel_sleep()
                 for file_path in get_template():
-                    api.request_set_pixel_sleep()
                     if template_needed_work(file_path, td, rev):
+                        api.request_set_pixel_sleep()
                         is_100 = False
                         first_100 = False
                         templates_worked_on_this_round += 1
@@ -157,7 +152,6 @@ def main_loop():
                 if not first_100:
                     first_100 = True
                     logger.info("All images 100% done")
-                    all_pixels_generator = get_blind_pixels()
                 time.sleep(5)
                 api.wait_for_get_pixels()
                 if api.pixels_disabled:

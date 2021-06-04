@@ -2,8 +2,6 @@ import datetime
 import json
 import os.path
 
-from PIL import Image
-
 CANVAS_START = datetime.datetime(2021, 5, 24)
 
 templates = {}
@@ -63,6 +61,8 @@ def reset_templates_cache():
 
 
 def convert_frames_to_absolute(directory):
+    from PIL import Image
+
     abs_path = os.path.abspath(directory)
     template = templates.setdefault(abs_path, Template(abs_path))
     ww = None

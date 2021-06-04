@@ -61,6 +61,7 @@ class RateLimitManager:
         self.logger.info(f"{logger_name} __init__")
         self.logger.debug(last_headers)
         self.endpoint = endpoint
+        self.logged_no_sleep = False
 
         self.next_allowed = time.time()
         self.is_locked_until = 0
@@ -74,7 +75,6 @@ class RateLimitManager:
 
         self.average_sleep = int(last_headers['Requests-Period']) / int(last_headers['Requests-Limit'])
         self.logger.debug(f"next allowed has been set to: {self.next_allowed - time.time()}")
-        self.logged_no_sleep = False
 
     def sleep(self, addition=None, requester=None):
         if self.is_locked_until > time.time():
@@ -164,6 +164,7 @@ class RequestsManager:
             self.get_manager.sleep()
 
     def get_pixels(self):
+        # TODO: doesn't handle canvas size change during this but that's probably irrelevant because coords don't change
         if (self.last_get_pixels > time.time() - 2 or self.pixels_disabled) and self.canvas:
             return self.canvas.copy()
 
